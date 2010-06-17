@@ -31,7 +31,7 @@ module Bluepill
     attr_accessor :name, :watches, :triggers, :logger, :skip_ticks_until
     attr_accessor *CONFIGURABLE_ATTRIBUTES
     attr_reader :children, :statistics
-    
+
     state_machine :initial => :unmonitored do
       # These are the idle states, i.e. only an event (either external or internal) will trigger a transition.
       # The distinction between down and unmonitored is that down
@@ -84,8 +84,8 @@ module Bluepill
 
       after_transition any => any, :do => :record_transition
     end
-    
-    def initialize(process_name, options = {})      
+
+    def initialize(process_name, options = {})
       @name = process_name
       @event_mutex = Monitor.new
       @transition_history = Util::RotationalArray.new(10)
@@ -105,6 +105,14 @@ module Bluepill
             
       # Let state_machine do its initialization stuff
       super() # no arguments intentional
+    end
+
+    def options
+      result = Hash.new
+      CONFIGURABLE_ATTRIBUTES.each do |attr|
+        result[attr] = send(attr)
+      end
+      result
     end
 
     def tick
@@ -366,23 +374,24 @@ module Bluepill
       
       # Construct a new process wrapper for each new found children
       new_children_pids.each do |child_pid|
-        child = self.child_process_template.deep_copy
-        
-        child.name = "<child(pid:#{child_pid})>"
-        child.actual_pid = child_pid
-        child.logger = self.logger.prefix_with(child.name)
-        
-        child.initialize_state_machines
-        child.state = "up"
+        child = child_process_template.make("<child(pid:#{child_pid})>", child_pid)
         
         @children << child
       end
     end
-    
-    def deep_copy
-      Marshal.load(Marshal.dump(self))
+
+    # TODO: refactor to ProcessTemplate 
+    def make(new_name, new_pid)
+      child = self.class.new(new_name, self.options)
+      child.actual_pid = new_pid
+      child.logger = self.logger.prefix_with(new_name)
+
+      child.initialize_state_machines
+      child.state = "up"
+
+      child
     end
-    
+
     def prepare_command(command)
       command.to_s.gsub("{{PID}}", actual_pid.to_s)
     end
